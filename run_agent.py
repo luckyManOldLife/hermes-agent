@@ -7637,10 +7637,26 @@ class AIAgent:
                     compaction_progress=compaction_progress,
                     threshold_percent=threshold_pct,
                     compression_enabled=self.compression_enabled,
+                    platform=self.platform,
                 )
                 self.status_callback("context_pressure", msg)
             except Exception:
                 logger.debug("status_callback error in context pressure", exc_info=True)
+
+    def _context_pressure_warning_tier(self, compaction_progress: float) -> float:
+        """Return the warning tier for the current platform.
+
+        Weixin is intentionally less chatty: it only warns at 95% of the
+        compaction threshold. Other surfaces keep the existing 85% / 95%
+        tiered behavior.
+        """
+        if self.platform == "weixin":
+            return 0.95 if compaction_progress >= 0.95 else 0.0
+        if compaction_progress >= 0.95:
+            return 0.95
+        if compaction_progress >= 0.85:
+            return 0.85
+        return 0.0
 
     def _handle_max_iterations(self, messages: list, api_call_count: int) -> str:
         """Request a summary when max iterations are reached. Returns the final response text."""
@@ -10211,12 +10227,9 @@ class AIAgent:
                     # Tiered: 85% (orange) and 95% (red/critical).
                     if _compressor.threshold_tokens > 0:
                         _compaction_progress = _real_tokens / _compressor.threshold_tokens
-                        # Determine the warning tier for this progress level
-                        _warn_tier = 0.0
-                        if _compaction_progress >= 0.95:
-                            _warn_tier = 0.95
-                        elif _compaction_progress >= 0.85:
-                            _warn_tier = 0.85
+                        # Determine the warning tier for this progress level.
+                        # Weixin is intentionally less noisy than CLI/other gateways.
+                        _warn_tier = self._context_pressure_warning_tier(_compaction_progress)
                         if _warn_tier > self._context_pressure_warned_at:
                             # Class-level dedup: check if this session was already
                             # warned at this tier within the cooldown window.

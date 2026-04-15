@@ -1016,6 +1016,7 @@ def format_context_pressure_gateway(
     compaction_progress: float,
     threshold_percent: float,
     compression_enabled: bool = True,
+    platform: str | None = None,
 ) -> str:
     """Build a plain-text context pressure notification for messaging platforms.
 
@@ -1029,6 +1030,13 @@ def format_context_pressure_gateway(
     threshold_pct_int = int(threshold_percent * 100)
 
     icon = "⚠️"
+    if platform == "weixin":
+        if compression_enabled:
+            hint = f"当前会话较长，接近自动压缩阈值（阈值为上下文窗口的 {threshold_pct_int}%）。"
+        else:
+            hint = "当前未启用自动压缩，较早消息可能被截断。"
+        return f"{icon} 上下文进度：{bar} {pct_int}%\n{hint}"
+
     if compression_enabled:
         hint = f"Context compaction approaching (threshold: {threshold_pct_int}% of window)."
     else:

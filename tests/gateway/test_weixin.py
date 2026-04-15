@@ -33,6 +33,62 @@ class TestWeixinFormatting:
             == "【Title】\n\n**Plan**\n\nUse **bold** and docs (https://example.com)."
         )
 
+    def test_format_message_localizes_common_approval_prompt(self):
+        adapter = _make_adapter()
+
+        content = (
+            "⚠️ **Dangerous command requires approval:**\n"
+            "**Command:**\n```\nrm -rf /tmp/demo\n```\n"
+            "Reason: destructive command\n\n"
+            "Reply `/approve` to execute, `/approve session` to approve this pattern "
+            "for the session, `/approve always` to approve permanently, or `/deny` to cancel."
+        )
+
+        formatted = adapter.format_message(content)
+
+        assert "危险命令需要确认" in formatted
+        assert "原因：destructive command" in formatted
+        assert "回复 `/approve` 立即执行" in formatted
+        assert "回复 `/deny` 取消" in formatted
+
+    def test_format_message_localizes_common_session_error_reminders(self):
+        adapter = _make_adapter()
+
+        content = (
+            "⚠️ Session too large for the model's context window.\n"
+            "Use /compact to compress the conversation, or /reset to start fresh.\n\n"
+            "Sorry, I encountered an error (rate_limit).\n"
+            "You are being rate-limited. Please wait a moment and try again.\n"
+            "Try again or use /reset to start a fresh session."
+        )
+
+        formatted = adapter.format_message(content)
+
+        assert "当前会话太长" in formatted
+        assert "可发送 /compact 压缩对话" in formatted
+        assert "抱歉，处理请求时出现错误（rate_limit）" in formatted
+        assert "当前请求较多，请稍等片刻后再试。" in formatted
+        assert "发送 /reset 重新开始会话" in formatted
+
+    def test_format_message_localizes_inactivity_warning_and_timeout_summary(self):
+        adapter = _make_adapter()
+
+        content = (
+            "⚠️ No activity for 5 min. If the agent does not respond soon, it will be timed out in 10 min. "
+            "You can continue waiting or use /reset.\n\n"
+            "⏱️ Agent inactive for 15 min — no tool calls or API responses.\n"
+            "The agent appears stuck on tool `browser_navigate` (90s since last activity, iteration 2/20).\n"
+            "To increase the limit, set agent.gateway_timeout in config.yaml (value in seconds, 0 = no limit) and restart the gateway."
+        )
+
+        formatted = adapter.format_message(content)
+
+        assert "已有 5 分钟没有新进展" in formatted
+        assert "10 分钟后会自动超时" in formatted
+        assert "智能体已静默 15 分钟" in formatted
+        assert "卡在工具 `browser_navigate` 上" in formatted
+        assert "设置 agent.gateway_timeout" in formatted
+
     def test_format_message_rewrites_markdown_tables(self):
         adapter = _make_adapter()
 
@@ -361,6 +417,49 @@ class TestWeixinChunkDelivery:
         retry = send_message_mock.await_args_list[2].kwargs
         assert first_try["text"] == retry["text"]
         assert first_try["client_id"] == retry["client_id"]
+
+
+class TestWeixinMediaDelivery:
+    def test_send_image_file_accepts_base_adapter_image_path_keyword(self):
+        adapter = _make_adapter()
+        adapter.send_document = AsyncMock(return_value={"success": True})
+
+        result = asyncio.run(
+            adapter.send_image_file(
+                chat_id="wxid_test123",
+                image_path="/tmp/demo.png",
+                caption="截图说明",
+                metadata={"source": "test"},
+            )
+        )
+
+        assert result == {"success": True}
+        adapter.send_document.assert_awaited_once_with(
+            "wxid_test123",
+            file_path="/tmp/demo.png",
+            caption="截图说明",
+            metadata={"source": "test"},
+        )
+
+    def test_send_image_file_still_accepts_legacy_path_keyword(self):
+        adapter = _make_adapter()
+        adapter.send_document = AsyncMock(return_value={"success": True})
+
+        result = asyncio.run(
+            adapter.send_image_file(
+                chat_id="wxid_test123",
+                path="/tmp/demo.png",
+                metadata={"source": "legacy"},
+            )
+        )
+
+        assert result == {"success": True}
+        adapter.send_document.assert_awaited_once_with(
+            "wxid_test123",
+            file_path="/tmp/demo.png",
+            caption="",
+            metadata={"source": "legacy"},
+        )
 
 
 class TestWeixinRemoteMediaSafety:

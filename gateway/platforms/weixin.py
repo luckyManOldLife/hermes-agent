@@ -888,6 +888,102 @@ def _extract_text(item_list: List[Dict[str, Any]]) -> str:
     return ""
 
 
+def _localize_common_weixin_reminders(content: str) -> str:
+    """Translate common gateway/system reminders into concise Chinese for Weixin."""
+    if not content:
+        return content
+
+    localized = content
+
+    regex_replacements: List[Tuple[re.Pattern[str], Any]] = [
+        (
+            re.compile(r"Your plan's usage limit has been reached\. It resets in ~(\d+)h\."),
+            lambda m: f"当前套餐额度已用完，预计约 {m.group(1)} 小时后重置。",
+        ),
+        (
+            re.compile(
+                r"⚠️ No activity for (\d+) min\. If the agent does not respond soon, it will be timed out in (\d+) min\. You can continue waiting or use /reset\."
+            ),
+            lambda m: f"⚠️ 已有 {m.group(1)} 分钟没有新进展。如果智能体仍未响应，{m.group(2)} 分钟后会自动超时。你可以继续等待，或发送 /reset 重新开始。",
+        ),
+        (
+            re.compile(r"⏱️ Agent inactive for (\d+) min — no tool calls or API responses\."),
+            lambda m: f"⏱️ 智能体已静默 {m.group(1)} 分钟：没有新的工具调用，也没有新的模型响应。",
+        ),
+        (
+            re.compile(r"The agent appears stuck on tool `([^`]+)` \(([^)]+)\)\."),
+            lambda m: f"智能体看起来卡在工具 `{m.group(1)}` 上（{m.group(2)}）。",
+        ),
+        (
+            re.compile(r"Last activity: ([^(]+) \(([^)]+)\)\. The agent may have been waiting on an API response\."),
+            lambda m: f"最近一次活动：{m.group(1).strip()}（{m.group(2)}）。智能体可能仍在等待 API 响应。",
+        ),
+        (
+            re.compile(r"Sorry, I encountered an error \(([^)]+)\)\."),
+            lambda m: f"抱歉，处理请求时出现错误（{m.group(1)}）。",
+        ),
+        (
+            re.compile(r"❌ Command(s)? denied(?: \((\d+) commands\))?\."),
+            lambda m: f"❌ 已拒绝{m.group(2) + ' 条' if m.group(2) else ''}命令。",
+        ),
+    ]
+    for pattern, repl in regex_replacements:
+        localized = pattern.sub(repl, localized)
+
+    direct_replacements = [
+        ("Hi~ I don't recognize you yet!", "嗨，我这边还没识别到你的账号。"),
+        ("Here's your pairing code:", "这是你的配对码："),
+        ("Ask the bot owner to run:", "请让机器人管理员执行："),
+        ("Too many pairing requests right now~ Please try again later!", "当前配对请求太多，请稍后再试！"),
+        ("Please try again later!", "请稍后再试！"),
+        ("⚡ Stopped. You can continue this session.", "⚡ 已停止。你可以继续当前会话。"),
+        ("⚠️ Session too large for the model's context window.", "⚠️ 当前会话太长，已超出模型上下文窗口。"),
+        ("Use /compact to compress the conversation, or /reset to start fresh.", "可发送 /compact 压缩对话，或发送 /reset 重新开始。"),
+        ("Try again or use /reset to start a fresh session.", "你可以重试，或发送 /reset 重新开始会话。"),
+        ("Try again, or use /reset to start fresh.", "你可以重试，或发送 /reset 重新开始会话。"),
+        ("You can continue waiting or use /reset.", "你可以继续等待，或发送 /reset 重新开始。"),
+        ("Your plan's usage limit has been reached. Please wait until it resets.", "当前套餐额度已用完，请等待额度重置后再试。"),
+        ("You are being rate-limited. Please wait a moment and try again.", "当前请求较多，请稍等片刻后再试。"),
+        ("The API is temporarily overloaded. Please try again shortly.", "服务暂时繁忙，请稍后再试。"),
+        ("The request was rejected by the API.", "该请求被 API 拒绝。"),
+        ("The request failed:", "请求失败："),
+        ("**Command:**", "**命令：**"),
+        ("Reason: ", "原因："),
+        ("Reason:", "原因："),
+        ("Dangerous command requires approval:", "危险命令需要确认："),
+        (
+            "Reply `/approve` to execute, `/approve session` to approve this pattern for the session, `/approve always` to approve permanently, or `/deny` to cancel.",
+            "回复 `/approve` 立即执行，回复 `/approve session` 在本会话内放行同类命令，回复 `/approve always` 永久放行，或回复 `/deny` 取消。",
+        ),
+        (
+            "Reply `/approve` (yes) or `/deny` (no), or type your answer directly.",
+            "回复 `/approve`（是）或 `/deny`（否），也可以直接输入你的回答。",
+        ),
+        ("Update needs your input:", "更新需要你确认："),
+        ("Hermes update timed out after 30 minutes.", "Hermes 更新已超时（30 分钟）。"),
+        ("Hermes update finished successfully.", "Hermes 更新已成功完成。"),
+        ("Hermes update finished.", "Hermes 更新已完成。"),
+        ("Hermes update failed.", "Hermes 更新失败。"),
+        (
+            "Check the gateway logs or run `hermes update` manually for details.",
+            "请查看 gateway 日志，或手动运行 `hermes update` 获取详情。",
+        ),
+        ("Gateway restarted successfully. Your session continues.", "Gateway 已成功重启，当前会话可继续使用。"),
+        ("❌ Command denied (approval was stale).", "❌ 命令已拒绝（该确认已过期）。"),
+        ("No pending command to deny.", "当前没有待拒绝的命令。"),
+        ("No pending command to approve.", "当前没有待确认的命令。"),
+        ("(No response generated)", "（未生成回复）"),
+        (
+            "To increase the limit, set agent.gateway_timeout in config.yaml (value in seconds, 0 = no limit) and restart the gateway.",
+            "如需提高超时上限，请在 config.yaml 中设置 agent.gateway_timeout（单位秒，0 表示不限制），然后重启 gateway。",
+        ),
+    ]
+    for old, new in direct_replacements:
+        localized = localized.replace(old, new)
+
+    return localized
+
+
 def _message_type_from_media(media_types: List[str], text: str) -> MessageType:
     if any(m.startswith("image/") for m in media_types):
         return MessageType.PHOTO
@@ -1542,12 +1638,16 @@ class WeixinAdapter(BasePlatformAdapter):
     async def send_image_file(
         self,
         chat_id: str,
-        path: str,
+        path: Optional[str] = None,
         caption: str = "",
         reply_to: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        image_path: Optional[str] = None,
     ) -> SendResult:
-        return await self.send_document(chat_id, file_path=path, caption=caption, metadata=metadata)
+        resolved_path = image_path or path
+        if not resolved_path:
+            return SendResult(success=False, error="image_path is required")
+        return await self.send_document(chat_id, file_path=resolved_path, caption=caption, metadata=metadata)
 
     async def send_document(
         self,
@@ -1755,7 +1855,7 @@ class WeixinAdapter(BasePlatformAdapter):
     def format_message(self, content: Optional[str]) -> str:
         if content is None:
             return ""
-        return _normalize_markdown_blocks(content)
+        return _normalize_markdown_blocks(_localize_common_weixin_reminders(content))
 
 
 async def send_weixin_direct(

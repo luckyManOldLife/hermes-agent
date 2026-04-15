@@ -90,6 +90,16 @@ class TestFormatContextPressureGateway:
         assert "90% to compaction" in msg
         assert "approaching" in msg
 
+    def test_weixin_warning_is_chinese(self):
+        msg = format_context_pressure_gateway(0.95, 0.50, platform="weixin")
+        assert "上下文进度" in msg
+        assert "自动压缩阈值" in msg
+        assert "95%" in msg
+
+    def test_weixin_disabled_warning_is_chinese(self):
+        msg = format_context_pressure_gateway(0.95, 0.50, compression_enabled=False, platform="weixin")
+        assert "未启用自动压缩" in msg
+
     def test_no_compaction_warning(self):
         msg = format_context_pressure_gateway(0.85, 0.50, compression_enabled=False)
         assert "disabled" in msg
@@ -168,6 +178,23 @@ class TestContextPressureFlags:
         args = cb.call_args[0]
         assert args[0] == "context_pressure"
         assert "85% to compaction" in args[1]
+
+    def test_emit_calls_status_callback_with_weixin_localized_message(self, agent):
+        cb = MagicMock()
+        agent.status_callback = cb
+        agent.platform = "weixin"
+
+        compressor = MagicMock()
+        compressor.context_length = 200_000
+        compressor.threshold_tokens = 100_000
+
+        agent._emit_context_pressure(0.95, compressor)
+
+        cb.assert_called_once()
+        args = cb.call_args[0]
+        assert args[0] == "context_pressure"
+        assert "上下文进度" in args[1]
+        assert "自动压缩阈值" in args[1]
 
     def test_emit_no_callback_no_crash(self, agent):
         """No status_callback set — should not crash."""
@@ -256,6 +283,12 @@ class TestContextPressureFlags:
         # After emission at 95%, the tier should update
         agent._context_pressure_warned_at = 0.95
         assert agent._context_pressure_warned_at == 0.95
+
+    def test_weixin_only_warns_at_95(self, agent):
+        agent.platform = "weixin"
+        assert agent._context_pressure_warning_tier(0.85) == 0.0
+        assert agent._context_pressure_warning_tier(0.94) == 0.0
+        assert agent._context_pressure_warning_tier(0.95) == 0.95
 
     def test_tiered_no_double_emit_at_same_level(self, agent):
         """Once warned at 85%, further 85%+ readings don't re-warn."""
